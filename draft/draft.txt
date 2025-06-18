@@ -1,0 +1,1 @@
+- Requête dans index.js pour avoir juste le nombre de followers dans /followers-projects

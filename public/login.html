@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title data-i18n="login">Login - IdeaSharer</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <h1 data-i18n="login">Login</h1>
+    <form id="login-form">
+        <input type="text" name="username" placeholder="Username" required data-i18n-placeholder="username" />
+        <input type="password" name="password" placeholder="Password" required data-i18n-placeholder="password" />
+        <button type="submit" data-i18n="login">Login</button>
+    </form>
+    <p>Not registered yet? <a href="signin" data-i18n="signin">Sign up</a></p>
+    <script src="loadLanguage.js"></script>
+    <script>
+    document.getElementById('login-form').addEventListener('submit', async e => {
+        e.preventDefault();
+        const form = e.target;
+        const data = {
+            username: form.username.value,
+            password: form.password.value
+        };
+        const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const json = await res.json();
+        if (json.success) {
+            window.location.href = '/';
+        } else {
+            alert(json.error);
+        }
+    });
+    </script>
+</body>
+</html>

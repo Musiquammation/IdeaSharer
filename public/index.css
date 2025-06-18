@@ -1,0 +1,55 @@
+/* Variables CSS pour le mode clair */
+.project {
+	background-color: var(--project-bg);
+	padding: 10px;
+	margin: 10px 0;
+	border-radius: 6px;
+	box-shadow: 0 0 5px rgba(0,0,0,0.1);
+}
+
+.project p {
+	white-space: pre-wrap;
+	background-color: var(--panel-bg);
+	padding: 1rem;
+}
+
+
+.followers-info span {
+	margin-right: .1rem;
+}
+
+#create-project-panel {
+	background: var(--panel-bg);
+	border-radius: 10px;
+	box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+	padding: 24px 28px 20px 28px;
+	margin: 24px 0 24px 0;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+#create-project-panel h2 {
+	margin-top: 0;
+	font-size: 1.3em;
+	color: var(--panel-title);
+	text-align: center;
+}
+#create-project-panel input[type="text"],
+#create-project-panel textarea {
+	width: 100%;
+	padding: 10px;
+	border-radius: 6px;
+	border: 1px solid var(--input-border);
+	font-size: 1em;
+	margin-bottom: 10px;
+	background: var(--input-bg);
+	transition: border 0.2s;
+	color: inherit;
+}
+#create-project-panel input[type="text"]:focus,
+#create-project-panel textarea:focus {
+	border: 1.5px solid #007bff;
+	outline: none;
+}
+
+

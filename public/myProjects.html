@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title data-i18n="title_my_projects">My Projects - IdeaSharer</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="index.css" />
+</head>
+<body>
+    <h1 data-i18n="my_projects">My Projects</h1>
+    <div id="user-info"></div>
+    <button id="logout-btn" data-i18n="logout">Logout</button>
+    <section id="create-project-panel">
+        <h2 data-i18n="create_project">Create a project</h2>
+        <form id="add-project-form">
+            <input type="text" name="title" placeholder="Title" required maxlength="100" data-i18n-placeholder="project_title" />
+            <textarea name="description" placeholder="Description" required data-i18n-placeholder="project_description"></textarea>
+            <button type="submit" data-i18n="create">Create</button>
+        </form>
+    </section>
+    <h2 style="padding-top: 20px;" data-i18n="list">List</h2>
+    <section id="my-projects-list"></section>
+    <script src="loadLanguage.js"></script>
+    <script src="myProjects.js"></script>
+</body>
+</html>

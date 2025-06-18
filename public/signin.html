@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <title data-i18n="signin">Sign up - IdeaSharer</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+    <h1 data-i18n="signin">Sign up</h1>
+    <form id="signup-form">
+        <input type="text" name="username" placeholder="Username" required data-i18n-placeholder="username" />
+        <input type="email" name="email" placeholder="Email" required data-i18n-placeholder="email" />
+        <input type="password" name="password" placeholder="Password" required data-i18n-placeholder="password" />
+        <button type="submit" data-i18n="signin">Sign up</button>
+    </form>
+    <p>Already registered? <a href="login" data-i18n="login">Login</a></p>
+    <script src="loadLanguage.js"></script>
+    <script>
+    document.getElementById('signup-form').addEventListener('submit', async e => {
+        e.preventDefault();
+        const form = e.target;
+        const data = {
+            username: form.username.value,
+            email: form.email.value,
+            password: form.password.value
+        };
+        const res = await fetch('/api/signup', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const json = await res.json();
+        if (json.success) {
+            alert('Sign up successful! Please log in.');
+            window.location.href = 'login';
+        } else {
+            alert(json.error);
+        }
+    });
+    </script>
+</body>
+</html>

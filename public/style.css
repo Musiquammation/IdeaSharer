@@ -1,0 +1,82 @@
+/* Variables CSS pour le mode clair */
+:root {
+	--background: #f3f4f6;
+	--foreground: #222;
+	--primary: #0b3d91;
+	--button-bg: #225;
+	--button-fg: #fff;
+	--project-bg: #fff;
+	--panel-bg: #f8f9fa;
+	--input-bg: #fff;
+	--input-border: #ccc;
+	--project-bg: #fff;
+	--panel-bg: #f8f9fa;
+	--input-bg: #fff;
+	--input-border: #ccc;
+	--panel-title: #333;
+}
+
+
+
+/* Variables CSS pour le dark mode */
+@media (prefers-color-scheme: dark) {
+	:root {
+		--background: #181a1b;
+		--foreground: #e3e3e3;
+		--primary: #6ca0ff;
+		--button-bg: #223355;
+		--button-fg: #fff;
+		--project-bg: #23272a;
+		--panel-bg: #23272a;
+		--input-bg: #181a1b;
+		--input-border: #444;
+		--project-bg: #23272a;
+		--panel-bg: #23272a;
+		--input-bg: #181a1b;
+		--input-border: #444;
+		--panel-title: #e3e3e3;
+	}
+}
+
+body {
+	font-family: Arial, sans-serif;
+	background-color: var(--background);
+	margin: 0;
+	padding: 20px;
+	color: var(--foreground);
+}
+
+h1, h2 {
+	color: var(--primary);
+}
+
+a {
+	color: var(--primary);
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+button {
+	background-color: var(--button-bg);
+	color: var(--button-fg);
+	cursor: pointer;
+	transition: transform 0.2s ease, box-shadow 0.2s ease;
+	box-shadow: 0 0 var(--button-bg);
+	
+	padding: 4px;
+	border: none;
+}
+
+button:hover {
+	transform: translateY(-4px);
+	box-shadow: 0 4px var(--button-bg);
+}
+
+textarea {
+	width: 100%;
+	min-height: 100px;
+	resize: vertical;
+}
