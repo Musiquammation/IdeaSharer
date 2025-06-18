@@ -17,6 +17,28 @@ app.use(session({
 	saveUninitialized: false,
 }));
 
+
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(publicPath, 'login.html'));
+});
+
+app.get('/signin', (req, res) => {
+  res.sendFile(path.join(publicPath, 'signin.html'));
+});
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(publicPath, 'index.html'));
+});
+
+app.get('/followedProjects', (req, res) => {
+  res.sendFile(path.join(publicPath, 'followedProjects.html'));
+});
+
+app.get('/myProjects', (req, res) => {
+  res.sendFile(path.join(publicPath, 'myProjects.html'));
+});
+
+
 // Connexion PostgreSQL
 const pool = new Pool({
 	connectionString: process.env.DATABASE_URL,
