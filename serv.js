@@ -6,6 +6,7 @@ const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
 
 const app = express();
+const publicPath = path.join(__dirname, 'public');
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(bodyParser.json());
