@@ -354,18 +354,38 @@ app.delete('/api/projects/:id', isAuthenticated, (req, res) => {
 
 
 
+let credentials;
 
-const credentials = {
-	key: fs.readFileSync('/etc/letsencrypt/live/villager-studio.online/privkey.pem', 'utf8'),
-	cert: fs.readFileSync('/etc/letsencrypt/live/villager-studio.online/cert.pem', 'utf8'),
-	ca: fs.readFileSync('/etc/letsencrypt/live/villager-studio.online/chain.pem', 'utf8')
-};
+try {
+	credentials = {
+		key: fs.readFileSync('/etc/letsencrypt/live/villager-studio.online/privkey.pem', 'utf8'),
+		cert: fs.readFileSync('/etc/letsencrypt/live/villager-studio.online/cert.pem', 'utf8'),
+		ca: fs.readFileSync('/etc/letsencrypt/live/villager-studio.online/chain.pem', 'utf8')
+	};
+	console.log('Loaded SSL certs from default path.');
+} catch (err) {
+	console.warn('Default SSL certs not found. Trying from ./certs...');
+	console.error(err);
+	try {
+		credentials = {
+			key: fs.readFileSync(path.join(__dirname, 'certs', 'privkey.pem'), 'utf8'),
+			cert: fs.readFileSync(path.join(__dirname, 'certs', 'cert.pem'), 'utf8'),
+			ca: fs.readFileSync(path.join(__dirname, 'certs', 'chain.pem'), 'utf8')
+		};
+		console.log('Loaded SSL certs from ./certs');
+	} catch (err2) {
+		console.warn('Failed to load SSL certificates from both locations.');
+		console.error(err2);
+	}
+}
 
-const httpsServ = https.createServer(credentials, app);
-httpsServ.listen(443, () => {
-	console.log('HTTPS server listening on https://villager-studio.online:443');
-});
 
+if (credentials) {
+	const httpsServ = https.createServer(credentials, app);
+	httpsServ.listen(443, () => {
+		console.log('HTTPS server listening on https://villager-studio.online:443');
+	});
+}
 
 const httpServ = http.createServer(app);
 httpServ.listen(80, () => {
