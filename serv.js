@@ -1,393 +1,341 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
+const { Pool } = require('pg');
 const https = require('https');
 const http = require('http');
 const fs = require('fs');
 
-
-
 const app = express();
-
-
-
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Simple session middleware (basic login memo)
 app.use(session({
-	secret: 'y2X3Wt!-T73n[y',
-	resave: false,
-	saveUninitialized: false,
+  secret: 'y2X3Wt!-T73n[y',
+  resave: false,
+  saveUninitialized: false,
 }));
 
-const db = new sqlite3.Database('./database.db');
-
-// DB table initialization
-const initSql = `
-CREATE TABLE IF NOT EXISTS users (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	username TEXT UNIQUE NOT NULL,
-	email TEXT UNIQUE NOT NULL,
-	password_hash TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS projects (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	title TEXT NOT NULL,
-	description TEXT NOT NULL,
-	owner_id INTEGER,
-	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-	followers_count INTEGER DEFAULT 0,
-	FOREIGN KEY(owner_id) REFERENCES users(id)
-);
-
-CREATE TABLE IF NOT EXISTS project_likes (
-	user_id INTEGER,
-	project_id INTEGER,
-	PRIMARY KEY(user_id, project_id),
-	FOREIGN KEY(user_id) REFERENCES users(id),
-	FOREIGN KEY(project_id) REFERENCES projects(id)
-);
-
-CREATE TABLE IF NOT EXISTS project_members (
-	user_id INTEGER,
-	project_id INTEGER,
-	PRIMARY KEY(user_id, project_id),
-	FOREIGN KEY(user_id) REFERENCES users(id),
-	FOREIGN KEY(project_id) REFERENCES projects(id)
-);
-
-CREATE TABLE IF NOT EXISTS project_comments (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	project_id INTEGER NOT NULL,
-	user_id INTEGER NOT NULL,
-	content TEXT NOT NULL,
-	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-	FOREIGN KEY(project_id) REFERENCES projects(id),
-	FOREIGN KEY(user_id) REFERENCES users(id)
-);
-
-CREATE TABLE IF NOT EXISTS chat_messages (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	user_id INTEGER,
-	username TEXT,
-	content TEXT NOT NULL,
-	created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-`;
-db.exec(initSql, err => {
-	if (err) {
-		console.error(err);
-	}
+// Connexion PostgreSQL
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
 });
 
-// --- Helpers ---
+// Initialisation base (tables)
+async function initDb() {
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projects (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        owner_id INTEGER REFERENCES users(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        followers_count INTEGER DEFAULT 0
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS project_likes (
+        user_id INTEGER REFERENCES users(id),
+        project_id INTEGER REFERENCES projects(id),
+        PRIMARY KEY(user_id, project_id)
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS project_members (
+        user_id INTEGER REFERENCES users(id),
+        project_id INTEGER REFERENCES projects(id),
+        PRIMARY KEY(user_id, project_id)
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS project_comments (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER REFERENCES projects(id) NOT NULL,
+        user_id INTEGER REFERENCES users(id) NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER,
+        username TEXT,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('Tables PostgreSQL prêtes');
+  } finally {
+    client.release();
+  }
+}
+initDb().catch(console.error);
 
+// Middleware d'authentification
 function isAuthenticated(req, res, next) {
-	if (req.session.user) return next();
-	res.status(401).json({ error: 'Not logged in' });
+  if (req.session.user) return next();
+  res.status(401).json({ error: 'Not logged in' });
 }
 
-// --- Auth Routes ---
+// Signup
+app.post('/api/signup', async (req, res) => {
+  const { username, email, password } = req.body;
+  if (!username || !email || !password) return res.status(400).json({ error: 'Missing fields' });
 
-app.post('/api/signup', (req, res) => {
-	const { username, password, email } = req.body;
-	if (!username || !password || !email) return res.status(400).json({ error: 'Username, email and password required' });
-
-	bcrypt.hash(password, 10, (err, hash) => {
-		if (err) return res.status(500).json({ error: 'Server error' });
-
-		db.run('INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)', [username, email, hash], function(err) {
-			if (err) {
-				if (err.message.includes('UNIQUE')) {
-					return res.status(400).json({ error: 'Username or email already taken' });
-				}
-				return res.status(500).json({ error: 'Server error' });
-			}
-			res.json({ success: true });
-		});
-	});
+  try {
+    const hash = await bcrypt.hash(password, 10);
+    const result = await pool.query(
+      'INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3) RETURNING id',
+      [username, email, hash]
+    );
+    res.json({ success: true, id: result.rows[0].id });
+  } catch (err) {
+    if (err.code === '23505') { // violation UNIQUE
+      return res.status(400).json({ error: 'Username or email already taken' });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
-app.post('/api/login', (req, res) => {
-	const { username, password } = req.body;
-	if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+// Login
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Missing fields' });
 
-	db.get('SELECT * FROM users WHERE username = ?', [username], (err, user) => {
-		if (err) return res.status(500).json({ error: 'Server error' });
-		if (!user) return res.status(400).json({ error: 'User not found' });
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    const user = result.rows[0];
+    if (!user) return res.status(400).json({ error: 'User not found' });
 
-		bcrypt.compare(password, user.password_hash, (err, valid) => {
-			if (err) return res.status(500).json({ error: 'Server error' });
-			if (!valid) return res.status(400).json({ error: 'Incorrect password' });
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(400).json({ error: 'Incorrect password' });
 
-			req.session.user = { id: user.id, username: user.username };
-			res.json({ success: true });
-		});
-	});
+    req.session.user = { id: user.id, username: user.username };
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
+// Logout
 app.post('/api/logout', (req, res) => {
-	req.session.destroy();
-	res.json({ success: true });
+  req.session.destroy(() => res.json({ success: true }));
 });
 
-app.get('/api/whoami', (req, res) => {
-	if (req.session.user) res.json(req.session.user);
-	else res.json(null);
+// Get current user
+app.get('/api/me', (req, res) => {
+  if (req.session.user) res.json(req.session.user);
+  else res.status(401).json({ error: 'Not logged in' });
 });
 
-// --- Project Routes ---
-
-// Display projects (public)
-app.get('/api/projects', (req, res) => {
-	db.all('SELECT p.*, u.username as owner, p.followers_count FROM projects p LEFT JOIN users u ON p.owner_id = u.id', [], (err, rows) => {
-		if (err) return res.status(500).json({ error: err.message });
-
-		// Seed based on hour + day
-		const now = new Date();
-		const seed = now.getFullYear()*10000 + (now.getMonth()+1)*100 + now.getDate() + now.getHours();
-
-		function seededShuffle(arr, seed) {
-			let currentIndex = arr.length, randomIndex;
-			let pseudo = seed;
-			while (currentIndex != 0) {
-				pseudo = (pseudo * 9301 + 49297) % 233280;
-				let rand = pseudo / 233280;
-				randomIndex = Math.floor(rand * currentIndex);
-				currentIndex--;
-				[arr[currentIndex], arr[randomIndex]] = [arr[randomIndex], arr[currentIndex]];
-			}
-			return arr;
-		}
-
-		const shuffled = seededShuffle(rows, seed);
-		res.json(shuffled.slice(0, 10));
-	});
-});
-
-app.post('/api/projects', isAuthenticated, (req, res) => {
-	const { title, description } = req.body;
-	if (!title || !description) return res.status(400).json({ error: 'Title and description required' });
-
-	db.run('INSERT INTO projects (title, description, owner_id) VALUES (?, ?, ?)', [title, description, req.session.user.id], function(err) {
-		if (err) return res.status(500).json({ error: err.message });
-		res.json({ id: this.lastID });
-	});
-});
-
-app.put('/api/projects/:id', isAuthenticated, (req, res) => {
-	const id = req.params.id;
-	const { title, description } = req.body;
-	if (!title || !description) return res.status(400).json({ error: 'Title and description required' });
-
-	// Check owner
-	db.get('SELECT * FROM projects WHERE id = ?', [id], (err, project) => {
-		if (err) return res.status(500).json({ error: err.message });
-		if (!project) return res.status(404).json({ error: 'Project not found' });
-		if (project.owner_id !== req.session.user.id) return res.status(403).json({ error: 'Unauthorized' });
-
-		db.run('UPDATE projects SET title = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [title, description, id], err2 => {
-			if (err2) return res.status(500).json({ error: err2.message });
-			res.json({ success: true });
-		});
-	});
-});
-
-app.post('/api/projects/:id/like', isAuthenticated, (req, res) => {
-	const projectId = req.params.id;
-	db.run('INSERT OR IGNORE INTO project_likes (user_id, project_id) VALUES (?, ?)', [req.session.user.id, projectId], err => {
-		if (err) return res.status(500).json({ error: err.message });
-		res.json({ success: true });
-	});
-});
-
-app.post('/api/projects/:id/join', isAuthenticated, (req, res) => {
-	const projectId = req.params.id;
-	db.run('INSERT OR IGNORE INTO project_members (user_id, project_id) VALUES (?, ?)', [req.session.user.id, projectId], err => {
-		if (err) return res.status(500).json({ error: err.message });
-		res.json({ success: true });
-	});
-});
-
-// Get project comments (public)
-app.get('/api/projects/:id/comments', (req, res) => {
-	const projectId = req.params.id;
-	db.all(`SELECT pc.id, pc.content, pc.created_at, u.username FROM project_comments pc
-			JOIN users u ON pc.user_id = u.id
-			WHERE pc.project_id = ? ORDER BY pc.created_at ASC`, [projectId], (err, rows) => {
-		if (err) return res.status(500).json({ error: err.message });
-		res.json(rows);
-	});
-});
-
-app.post('/api/projects/:id/comments', isAuthenticated, (req, res) => {
-	const projectId = req.params.id;
-	const { content } = req.body;
-	if (!content) return res.status(400).json({ error: 'Content required' });
-
-	db.run('INSERT INTO project_comments (project_id, user_id, content) VALUES (?, ?, ?)', [projectId, req.session.user.id, content], function(err) {
-		if (err) return res.status(500).json({ error: err.message });
-		res.json({ id: this.lastID });
-	});
-});
-
-// Get user’s own projects
-app.get('/api/my-projects', isAuthenticated, (req, res) => {
-	db.all('SELECT p.* FROM projects p WHERE p.owner_id = ?', [req.session.user.id], (err, rows) => {
-		if (err) return res.status(500).json({ error: err.message });
-		res.json(rows);
-	});
-});
-
-// --- Chat ---
-
-app.get('/api/chat/messages', isAuthenticated, (req, res) => {
-	db.all('SELECT * FROM chat_messages ORDER BY created_at DESC LIMIT 50', [], (err, rows) => {
-		if (err) return res.status(500).json({ error: err.message });
-		res.json(rows.reverse());
-	});
-});
-
-app.post('/api/chat/messages', isAuthenticated, (req, res) => {
-	const content = req.body.content;
-	if (!content) return res.status(400).json({ error: 'Empty message' });
-
-	db.run('INSERT INTO chat_messages (user_id, username, content) VALUES (?, ?, ?)', [req.session.user.id, req.session.user.username, content], function(err) {
-		if (err) return res.status(500).json({ error: err.message });
-		res.json({ id: this.lastID });
-	});
-});
-
-// Redirects for /login and /signin without .html
-app.get('/login', (req, res) => {
-	res.sendFile(path.join(__dirname, 'public', 'login.html'));
-});
-app.get('/signin', (req, res) => {
-	res.sendFile(path.join(__dirname, 'public', 'signin.html'));
-});
-app.get('/myProjects', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'myProjects.html'));
-});
-app.get('/followedProjects', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'followedProjects.html'));
-});
-
-// --- Follow/Unfollow Projects ---
-
-// Follow a project
-app.post('/api/projects/:id/follow', isAuthenticated, (req, res) => {
-    const projectId = req.params.id;
-    db.run('INSERT OR IGNORE INTO project_likes (user_id, project_id) VALUES (?, ?)', [req.session.user.id, projectId], err => {
-        if (err) return res.status(500).json({ error: err.message });
-        // Incrémente followers_count
-        db.run('UPDATE projects SET followers_count = followers_count + 1 WHERE id = ?', [projectId]);
-        res.json({ success: true });
-    });
-});
-
-// Unfollow a project
-app.post('/api/projects/:id/unfollow', isAuthenticated, (req, res) => {
-    const projectId = req.params.id;
-    db.run('DELETE FROM project_likes WHERE user_id = ? AND project_id = ?', [req.session.user.id, projectId], err => {
-        if (err) return res.status(500).json({ error: err.message });
-        // Décrémente followers_count (mais jamais < 0)
-        db.run('UPDATE projects SET followers_count = MAX(followers_count - 1, 0) WHERE id = ?', [projectId]);
-        res.json({ success: true });
-    });
-});
-
-// Get followed projects for current user
-app.get('/api/followed-projects', isAuthenticated, (req, res) => {
-    db.all(`SELECT p.* FROM projects p
-            JOIN project_likes pl ON p.id = pl.project_id
-            WHERE pl.user_id = ?`, [req.session.user.id], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
-
-// Get followers count and list for a project
-app.get('/api/projects/:id/followers', isAuthenticated, (req, res) => {
-    const projectId = req.params.id;
-    db.all(`SELECT u.id, u.username FROM project_likes pl
-            JOIN users u ON pl.user_id = u.id
-            WHERE pl.project_id = ?`, [projectId], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ count: rows.length, followers: rows });
-    });
-});
-
-// Supprimer un projet et ses dépendances
-app.delete('/api/projects/:id', isAuthenticated, (req, res) => {
-    const id = req.params.id;
-    // Vérifie que l'utilisateur est bien le propriétaire
-    db.get('SELECT * FROM projects WHERE id = ?', [id], (err, project) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (!project) return res.status(404).json({ error: 'Project not found' });
-        if (project.owner_id !== req.session.user.id) return res.status(403).json({ error: 'Unauthorized' });
-        // Supprime les commentaires, les likes, les membres, puis le projet
-        db.run('DELETE FROM project_comments WHERE project_id = ?', [id], err1 => {
-            if (err1) return res.status(500).json({ error: err1.message });
-            db.run('DELETE FROM project_likes WHERE project_id = ?', [id], err2 => {
-                if (err2) return res.status(500).json({ error: err2.message });
-                db.run('DELETE FROM project_members WHERE project_id = ?', [id], err3 => {
-                    if (err3) return res.status(500).json({ error: err3.message });
-						db.run('DELETE FROM projects WHERE id = ?', [id], err4 => {
-						if (err4) return res.status(500).json({ error: err4.message });
-						res.json({ success: true });
-					});
-				});
-			});
-		});
-	});
-});
-
-
-
-
-
-let credentials;
-
-try {
-	credentials = {
-		key: fs.readFileSync('/etc/letsencrypt/live/villager-studio.online/privkey.pem', 'utf8'),
-		cert: fs.readFileSync('/etc/letsencrypt/live/villager-studio.online/cert.pem', 'utf8'),
-		ca: fs.readFileSync('/etc/letsencrypt/live/villager-studio.online/chain.pem', 'utf8')
-	};
-	console.log('Loaded SSL certs from default path.');
-} catch (err) {
-	console.warn('Default SSL certs not found. Trying from ./certs...');
-	console.error(err);
-	try {
-		credentials = {
-			key: fs.readFileSync(path.join(__dirname, 'certs', 'privkey.pem'), 'utf8'),
-			cert: fs.readFileSync(path.join(__dirname, 'certs', 'cert.pem'), 'utf8'),
-			ca: fs.readFileSync(path.join(__dirname, 'certs', 'chain.pem'), 'utf8')
-		};
-		console.log('Loaded SSL certs from ./certs');
-	} catch (err2) {
-		console.warn('Failed to load SSL certificates from both locations.');
-		console.error(err2);
-	}
+// Get projects (exemple avec shuffle simple)
+function seededShuffle(array, seed = 42) {
+  let m = array.length, t, i;
+  while (m) {
+    i = Math.floor((Math.sin(seed++) * 10000) % m);
+    if (i < 0) i += m;
+    m--;
+    t = array[m];
+    array[m] = array[i];
+    array[i] = t;
+  }
+  return array;
 }
 
+app.get('/api/projects', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT p.*, u.username as owner
+      FROM projects p LEFT JOIN users u ON p.owner_id = u.id
+    `);
+    let rows = result.rows;
+    rows = seededShuffle(rows);
+    res.json(rows.slice(0, 20));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
-if (credentials) {
-	const httpsServ = https.createServer(credentials, app);
-	httpsServ.listen(443, () => {
-		console.log('HTTPS server listening on https://villager-studio.online:443');
-	});
+// Get single project details with comments and likes count
+app.get('/api/projects/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid project ID' });
+
+  try {
+    const projectRes = await pool.query(
+      `SELECT p.*, u.username as owner FROM projects p LEFT JOIN users u ON p.owner_id = u.id WHERE p.id = $1`,
+      [id]
+    );
+    if (projectRes.rows.length === 0) return res.status(404).json({ error: 'Project not found' });
+
+    const project = projectRes.rows[0];
+
+    const commentsRes = await pool.query(
+      `SELECT c.*, u.username FROM project_comments c LEFT JOIN users u ON c.user_id = u.id WHERE c.project_id = $1 ORDER BY c.created_at DESC`,
+      [id]
+    );
+
+    const likesCountRes = await pool.query(
+      `SELECT COUNT(*) FROM project_likes WHERE project_id = $1`,
+      [id]
+    );
+
+    res.json({
+      project,
+      comments: commentsRes.rows,
+      likesCount: parseInt(likesCountRes.rows[0].count, 10)
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Create new project
+app.post('/api/projects', isAuthenticated, async (req, res) => {
+  const { title, description } = req.body;
+  if (!title || !description) return res.status(400).json({ error: 'Missing fields' });
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO projects (title, description, owner_id) VALUES ($1, $2, $3) RETURNING id`,
+      [title, description, req.session.user.id]
+    );
+    res.json({ success: true, id: result.rows[0].id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Like / unlike a project
+app.post('/api/projects/:id/like', isAuthenticated, async (req, res) => {
+  const projectId = parseInt(req.params.id);
+  if (isNaN(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
+
+  const userId = req.session.user.id;
+  try {
+    const existsRes = await pool.query(
+      `SELECT * FROM project_likes WHERE user_id = $1 AND project_id = $2`,
+      [userId, projectId]
+    );
+    if (existsRes.rows.length === 0) {
+      // Like
+      await pool.query(
+        `INSERT INTO project_likes (user_id, project_id) VALUES ($1, $2)`,
+        [userId, projectId]
+      );
+      await pool.query(
+        `UPDATE projects SET followers_count = followers_count + 1 WHERE id = $1`,
+        [projectId]
+      );
+      res.json({ liked: true });
+    } else {
+      // Unlike
+      await pool.query(
+        `DELETE FROM project_likes WHERE user_id = $1 AND project_id = $2`,
+        [userId, projectId]
+      );
+      await pool.query(
+        `UPDATE projects SET followers_count = followers_count - 1 WHERE id = $1 AND followers_count > 0`,
+        [projectId]
+      );
+      res.json({ liked: false });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Add comment to project
+app.post('/api/projects/:id/comment', isAuthenticated, async (req, res) => {
+  const projectId = parseInt(req.params.id);
+  const { content } = req.body;
+  if (!content || isNaN(projectId)) return res.status(400).json({ error: 'Invalid input' });
+
+  try {
+    await pool.query(
+      `INSERT INTO project_comments (project_id, user_id, content) VALUES ($1, $2, $3)`,
+      [projectId, req.session.user.id, content]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get chat messages (last 50)
+app.get('/api/chat', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM chat_messages ORDER BY created_at DESC LIMIT 50`
+    );
+    res.json(result.rows.reverse());
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Post chat message
+app.post('/api/chat', isAuthenticated, async (req, res) => {
+  const { content } = req.body;
+  if (!content) return res.status(400).json({ error: 'No message content' });
+
+  try {
+    await pool.query(
+      `INSERT INTO chat_messages (user_id, username, content) VALUES ($1, $2, $3)`,
+      [req.session.user.id, req.session.user.username, content]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Static files (front)
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public/index.html'));
+});
+
+// Serveur HTTPS et HTTP (optionnel)
+const httpsOptions = {
+  key: process.env.SSL_KEY ? fs.readFileSync(process.env.SSL_KEY) : null,
+  cert: process.env.SSL_CERT ? fs.readFileSync(process.env.SSL_CERT) : null,
+};
+
+if (httpsOptions.key && httpsOptions.cert) {
+  https.createServer(httpsOptions, app).listen(443, () => {
+    console.log('Serveur HTTPS lancé sur le port 443');
+  });
+} else {
+  console.log('Pas de config SSL, serveur HTTP seulement');
 }
 
-const httpServ = http.createServer(app);
-httpServ.listen(80, () => {
-	console.log('HTTP server listening on http://villager-studio.online:80');
+const port = process.env.PORT || 3000;
+http.createServer(app).listen(port, () => {
+  console.log(`Serveur HTTP lancé sur le port ${port}`);
 });
