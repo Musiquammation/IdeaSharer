@@ -328,14 +328,14 @@ const httpsOptions = {
 };
 
 if (httpsOptions.key && httpsOptions.cert) {
-  https.createServer(httpsOptions, app).listen(443, () => {
-    console.log('Serveur HTTPS lancé sur le port 443');
-  });
+	https.createServer(httpsOptions, app).listen(443, '0.0.0.0', () => {
+		console.log('Serveur HTTPS lancé sur le port 443');
+	});
 } else {
   console.log('Pas de config SSL, serveur HTTP seulement');
 }
 
 const port = process.env.PORT || 3000;
-http.createServer(app).listen(port, () => {
+http.createServer(app).listen(port, '0.0.0.0', () => {
   console.log(`Serveur HTTP lancé sur le port ${port}`);
 });
