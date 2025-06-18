@@ -28,5 +28,6 @@
   "delete": "Eliminar",
   "connected_as": "Conectado como",
   "connection": "Inicio de sesión",
-  "inscription": "Registro"
+  "inscription": "Registro",
+  "followed_projects": "Ver proyectos seguidos"
 }

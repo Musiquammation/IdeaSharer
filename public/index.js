@@ -3,6 +3,9 @@
 	document.getElementById("my-projects-btn").addEventListener("click", () => {
 		window.location.href = '/myProjects';
 	});
+	document.getElementById("followed-projects-btn").addEventListener("click", () => {
+		window.location.href = '/followedProjects';
+	});
 
 	let whoami = null;
 	try {
@@ -74,7 +77,7 @@
 					const resp = await fetch(`/api/projects/${p.id}/followers`);
 					if (resp.ok) {
 						const data = await resp.json();
-						followersListDiv.innerHTML = data.followers.length ? data.followers.map(u => `<div>${u.username}</div>`).join('') : '<em>No followers</em>';
+						followersListDiv.innerHTML = data.length ? data.map(u => `<div>${u.username}</div>`).join('') : '<em>No followers</em>';
 						followersListDiv.style.display = '';
 						viewBtn.textContent = 'Hide followers';
 					}
@@ -179,8 +182,9 @@
 					dislikeBtn.disabled = true;
 					likeBtn.disabled = false;
 				};
-			}
-			projectsList.appendChild(el);*/
+			}*/
+
+			projectsList.appendChild(el);
 		});
 	}
 

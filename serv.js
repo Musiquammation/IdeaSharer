@@ -439,6 +439,35 @@ app.post('/api/chat', isAuthenticated, async (req, res) => {
 	}
 });
 
+// Suivre un projet (ajoute un like si non déjà présent)
+app.post('/api/projects/:id/follow', isAuthenticated, async (req, res) => {
+  const projectId = parseInt(req.params.id);
+  if (isNaN(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
+  const userId = req.session.user.id;
+  try {
+    const existsRes = await pool.query(
+      `SELECT * FROM project_likes WHERE user_id = $1 AND project_id = $2`,
+      [userId, projectId]
+    );
+    if (existsRes.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO project_likes (user_id, project_id) VALUES ($1, $2)`,
+        [userId, projectId]
+      );
+      await pool.query(
+        `UPDATE projects SET followers_count = followers_count + 1 WHERE id = $1`,
+        [projectId]
+      );
+      res.json({ followed: true });
+    } else {
+      res.json({ followed: false, message: 'Already following' });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Catch-all to serve React frontend or index.html if any
 app.get('*', (req, res) => {
 	res.sendFile(path.join(__dirname, 'public', 'index.html'));

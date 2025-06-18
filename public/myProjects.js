@@ -84,7 +84,7 @@
 			const resp = await fetch(`/api/projects/${p.id}/followers`);
 			if (resp.ok) {
 				const data = await resp.json();
-				followersDiv.innerHTML = `<span>${data.count} follower(s)</span> <button class="show-followers-btn">Show list</button>`;
+				followersDiv.innerHTML = `<span>${data.length} follower(s)</span> <button class="show-followers-btn">Show list</button>`;
 				const showBtn = followersDiv.querySelector('.show-followers-btn');
 				showBtn.onclick = () => {
 					if (followersDiv.querySelector('.followers-list')) {
@@ -93,7 +93,7 @@
 					} else {
 						const list = document.createElement('div');
 						list.className = 'followers-list';
-						list.innerHTML = data.followers.length ? data.followers.map(u => `<div>${u.username}</div>`).join('') : '<em>No followers</em>';
+						list.innerHTML = data.length ? data.map(u => `<div>${u.username}</div>`).join('') : '<em>No followers</em>';
 						followersDiv.appendChild(list);
 						showBtn.textContent = 'Hide list';
 					}
