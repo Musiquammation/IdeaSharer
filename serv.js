@@ -4,9 +4,6 @@ const bodyParser = require('body-parser');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
-const https = require('https');
-const http = require('http');
-const fs = require('fs');
 
 const app = express();
 
@@ -272,7 +269,7 @@ app.post('/api/projects/:id/like', isAuthenticated, async (req, res) => {
 app.post('/api/projects/:id/comment', isAuthenticated, async (req, res) => {
   const projectId = parseInt(req.params.id);
   const { content } = req.body;
-  if (!content || isNaN(projectId)) return res.status(400).json({ error: 'Invalid input' });
+  if (isNaN(projectId) || !content) return res.status(400).json({ error: 'Invalid input' });
 
   try {
     await pool.query(
@@ -286,12 +283,10 @@ app.post('/api/projects/:id/comment', isAuthenticated, async (req, res) => {
   }
 });
 
-// Get chat messages (last 50)
+// Chat messages - get last 20
 app.get('/api/chat', async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT * FROM chat_messages ORDER BY created_at DESC LIMIT 50`
-    );
+    const result = await pool.query(`SELECT * FROM chat_messages ORDER BY created_at DESC LIMIT 20`);
     res.json(result.rows.reverse());
   } catch (err) {
     console.error(err);
@@ -302,7 +297,7 @@ app.get('/api/chat', async (req, res) => {
 // Post chat message
 app.post('/api/chat', isAuthenticated, async (req, res) => {
   const { content } = req.body;
-  if (!content) return res.status(400).json({ error: 'No message content' });
+  if (!content) return res.status(400).json({ error: 'No message' });
 
   try {
     await pool.query(
@@ -316,48 +311,13 @@ app.post('/api/chat', isAuthenticated, async (req, res) => {
   }
 });
 
-// Static files (front)
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public/index.html'));
+// Catch-all to serve React frontend or index.html if any
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-
-
-
-let credentials;
-
-try {
-	credentials = {
-		key: fs.readFileSync('/etc/letsencrypt/live/villager-studio.online/privkey.pem', 'utf8'),
-		cert: fs.readFileSync('/etc/letsencrypt/live/villager-studio.online/cert.pem', 'utf8'),
-		ca: fs.readFileSync('/etc/letsencrypt/live/villager-studio.online/chain.pem', 'utf8')
-	};
-	console.log('Loaded SSL certs from default path.');
-} catch (err) {
-	console.warn('Default SSL certs not found. Trying from ./certs...');
-	console.error(err);
-	try {
-		credentials = {
-			key: fs.readFileSync(path.join(__dirname, 'certs', 'privkey.pem'), 'utf8'),
-			cert: fs.readFileSync(path.join(__dirname, 'certs', 'cert.pem'), 'utf8'),
-			ca: fs.readFileSync(path.join(__dirname, 'certs', 'chain.pem'), 'utf8')
-		};
-		console.log('Loaded SSL certs from ./certs');
-	} catch (err2) {
-		console.warn('Failed to load SSL certificates from both locations.');
-		console.error(err2);
-	}
-}
-
-
-if (credentials) {
-	const httpsServ = https.createServer(credentials, app);
-	httpsServ.listen(443, () => {
-		console.log('HTTPS server listening on 443');
-	});
-}
-
-const httpServ = http.createServer(app);
-httpServ.listen(80, () => {
-	console.log('HTTP server listening on 80');
+// Écoute sur le port défini par Render
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
 });
