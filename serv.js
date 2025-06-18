@@ -139,7 +139,7 @@ app.post('/api/logout', (req, res) => {
 });
 
 // Get current user
-app.get('/whoami', (req, res) => {
+app.get('/api/whoami', (req, res) => {
 	if (req.session.user) res.json(req.session.user);
 	else res.status(401).json({ error: 'Not logged in' });
 });
