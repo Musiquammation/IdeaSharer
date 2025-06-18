@@ -288,22 +288,127 @@ app.post('/api/projects/:id/like', isAuthenticated, async (req, res) => {
 	}
 });
 
-// Add comment to project
-app.post('/api/projects/:id/comment', isAuthenticated, async (req, res) => {
-	const projectId = parseInt(req.params.id);
-	const { content } = req.body;
-	if (isNaN(projectId) || !content) return res.status(400).json({ error: 'Invalid input' });
+// Mes projets de l'utilisateur connecté
+app.get('/api/my-projects', isAuthenticated, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT p.*, u.username as owner FROM projects p LEFT JOIN users u ON p.owner_id = u.id WHERE p.owner_id = $1`,
+      [req.session.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
 
-	try {
-		await pool.query(
-			`INSERT INTO project_comments (project_id, user_id, content) VALUES ($1, $2, $3)`,
-			[projectId, req.session.user.id, content]
-		);
-		res.json({ success: true });
-	} catch (err) {
-		console.error(err);
-		res.status(500).json({ error: 'Server error' });
-	}
+// Supprimer un projet (seulement par le propriétaire)
+app.delete('/api/projects/:id', isAuthenticated, async (req, res) => {
+  const projectId = parseInt(req.params.id);
+  if (isNaN(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
+  try {
+    // Vérifier que l'utilisateur est bien le propriétaire
+    const result = await pool.query('SELECT * FROM projects WHERE id = $1', [projectId]);
+    if (!result.rows.length) return res.status(404).json({ error: 'Project not found' });
+    if (result.rows[0].owner_id !== req.session.user.id) return res.status(403).json({ error: 'Forbidden' });
+    await pool.query('DELETE FROM projects WHERE id = $1', [projectId]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Liste des followers d'un projet
+app.get('/api/projects/:id/followers', async (req, res) => {
+  const projectId = parseInt(req.params.id);
+  if (isNaN(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.username FROM project_likes pl JOIN users u ON pl.user_id = u.id WHERE pl.project_id = $1`,
+      [projectId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Liste des commentaires d'un projet
+app.get('/api/projects/:id/comments', async (req, res) => {
+  const projectId = parseInt(req.params.id);
+  if (isNaN(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
+  try {
+    const result = await pool.query(
+      `SELECT c.*, u.username FROM project_comments c LEFT JOIN users u ON c.user_id = u.id WHERE c.project_id = $1 ORDER BY c.created_at DESC`,
+      [projectId]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Ajouter un commentaire à un projet (POST)
+app.post('/api/projects/:id/comments', isAuthenticated, async (req, res) => {
+  const projectId = parseInt(req.params.id);
+  const { content } = req.body;
+  if (isNaN(projectId) || !content) return res.status(400).json({ error: 'Invalid input' });
+  try {
+    await pool.query(
+      `INSERT INTO project_comments (project_id, user_id, content) VALUES ($1, $2, $3)`,
+      [projectId, req.session.user.id, content]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Projets suivis par l'utilisateur
+app.get('/api/followed-projects', isAuthenticated, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT p.*, u.username as owner FROM project_likes pl JOIN projects p ON pl.project_id = p.id LEFT JOIN users u ON p.owner_id = u.id WHERE pl.user_id = $1`,
+      [req.session.user.id]
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Dislike (retirer le like) d'un projet
+app.post('/api/projects/:id/dislike', isAuthenticated, async (req, res) => {
+  const projectId = parseInt(req.params.id);
+  if (isNaN(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
+  const userId = req.session.user.id;
+  try {
+    const existsRes = await pool.query(
+      `SELECT * FROM project_likes WHERE user_id = $1 AND project_id = $2`,
+      [userId, projectId]
+    );
+    if (existsRes.rows.length === 0) {
+      return res.json({ disliked: false });
+    } else {
+      await pool.query(
+        `DELETE FROM project_likes WHERE user_id = $1 AND project_id = $2`,
+        [userId, projectId]
+      );
+      await pool.query(
+        `UPDATE projects SET followers_count = followers_count - 1 WHERE id = $1 AND followers_count > 0`,
+        [projectId]
+      );
+      res.json({ disliked: true });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // Chat messages - get last 20
