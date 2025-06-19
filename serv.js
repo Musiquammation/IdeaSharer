@@ -31,6 +31,10 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(publicPath, 'index.html'));
 });
 
+app.get('/index', (req, res) => {
+  res.sendFile(path.join(publicPath, 'index.html'));
+});
+
 app.get('/followedProjects', (req, res) => {
   res.sendFile(path.join(publicPath, 'followedProjects.html'));
 });
@@ -368,6 +372,36 @@ app.post('/api/projects/:id/comments', isAuthenticated, async (req, res) => {
   }
 });
 
+// Modifier le nom et la description d'un projet (seulement par le propriétaire)
+app.put('/api/projects/:id', isAuthenticated, async (req, res) => {
+  const projectId = parseInt(req.params.id);
+  const { title, description } = req.body;
+
+  if (isNaN(projectId)) return res.status(400).json({ error: 'Invalid project ID' });
+  if (!title || !description) return res.status(400).json({ error: 'Missing fields' });
+
+  try {
+    // Vérifier que l'utilisateur est bien le propriétaire
+    const result = await pool.query('SELECT * FROM projects WHERE id = $1', [projectId]);
+    if (!result.rows.length) return res.status(404).json({ error: 'Project not found' });
+    if (result.rows[0].owner_id !== req.session.user.id) return res.status(403).json({ error: 'Forbidden' });
+
+    // Mettre à jour le projet
+    await pool.query(
+      `UPDATE projects 
+       SET title = $1, description = $2, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $3`,
+      [title, description, projectId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
 // Projets suivis par l'utilisateur
 app.get('/api/followed-projects', isAuthenticated, async (req, res) => {
   try {
@@ -468,13 +502,14 @@ app.post('/api/projects/:id/follow', isAuthenticated, async (req, res) => {
   }
 });
 
-// Catch-all to serve React frontend or index.html if any
-app.get('*', (req, res) => {
-	res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+
+
 
 // Écoute sur le port défini par Render
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
 	console.log(`Server listening on port ${PORT}`);
 });
+
+
+
